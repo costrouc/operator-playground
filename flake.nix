@@ -15,6 +15,7 @@
           buildInputs = [
             pkgs.go
             pkgs.operator-sdk
+            pkgs.kind
           ];
         };
     });
