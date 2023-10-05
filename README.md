@@ -57,5 +57,17 @@ Now deploy a custom memcached resource
 # edit config/samples/cache_v1alpha1_memcached.yaml
 kubectl apply -f config/samples/cache_v1alpha1_memcached.yaml
 # you will see three memcached clusters start
-kubectl delete ... 
+kubectl delete kubectl delete memcached.cache.ostrolabs.com memcached-sample
+```
+
+Now redeployment should be reasonably simple on changes
+
+```shell
+# edit Makefile increment version/tag
+$ make manifests
+$ make docker-build docker-push
+$ make deploy
+$ kubectl apply -f config/samples/cache_v1alpha1_memcached.yaml
+# you will see three memcached clusters start
+$ kubectl delete kubectl delete memcached.cache.ostrolabs.com memcached-sample
 ```

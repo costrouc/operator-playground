@@ -213,7 +213,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 
-		log.Info("Creating a new Deployment",
+		log.Info("Creating a new Deployment!!!",
 			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 		if err = r.Create(ctx, dep); err != nil {
 			log.Error(err, "Failed to create new Deployment",
@@ -302,6 +302,23 @@ func (r *MemcachedReconciler) doFinalizerOperationsForMemcached(cr *cachev1alpha
 			cr.Name,
 			cr.Namespace))
 }
+
+
+// func (r *MemcachedReconciler) configmapForMemcached(
+// 	memcached *cachev1alpha1.Memcached) (*appsv1.ConfigMap, error) {
+// 	ls := labelsForMemcached(memcached.Name)
+
+// 	dep := &appsv1.Deployment{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      memcached.Name,
+// 			Namespace: memcached.Namespace,
+// 		},
+// 		Spec: appsv1.DeploymentSpec{
+
+// 		}
+// 	}
+// )
+
 
 // deploymentForMemcached returns a Memcached Deployment object
 func (r *MemcachedReconciler) deploymentForMemcached(
