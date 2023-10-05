@@ -65,6 +65,7 @@ type MemcachedReconciler struct {
 //+kubebuilder:rbac:groups=cache.ostrolabs.com,resources=memcacheds/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -80,6 +81,7 @@ type MemcachedReconciler struct {
 // - About Controllers: https://kubernetes.io/docs/concepts/architecture/controller/
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 	log := log.FromContext(ctx)
 
 	// Fetch the Memcached instance
@@ -213,7 +215,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 
-		log.Info("Creating a new Deployment!!!",
+		log.Info("Creating a new Deployment",
 			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 		if err = r.Create(ctx, dep); err != nil {
 			log.Error(err, "Failed to create new Deployment",
@@ -227,6 +229,46 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	} else if err != nil {
 		log.Error(err, "Failed to get Deployment")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	// Check if the deployment already exists, if not create a new one
+	cm_found := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: memcached.Name, Namespace: memcached.Namespace}, cm_found)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new configmap
+		cm, err := r.configmapForMemcached(memcached)
+		if err != nil {
+			log.Error(err, "Failed to define new ConfigMap resource for Memcached")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&memcached.Status.Conditions, metav1.Condition{Type: typeAvailableMemcached,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)", memcached.Name, err)})
+
+			if err := r.Status().Update(ctx, memcached); err != nil {
+				log.Error(err, "Failed to update Memcached status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new ConfigMap",
+			"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
+		if err = r.Create(ctx, cm); err != nil {
+			log.Error(err, "Failed to create new ConfigMap",
+				"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
+			return ctrl.Result{}, err
+		}
+
+		// ConfigMap created successfully
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get ConfigMap")
 		// Let's return the error for the reconciliation be re-trigged again
 		return ctrl.Result{}, err
 	}
@@ -303,22 +345,30 @@ func (r *MemcachedReconciler) doFinalizerOperationsForMemcached(cr *cachev1alpha
 			cr.Namespace))
 }
 
+func (r *MemcachedReconciler) configmapForMemcached(
+	memcached *cachev1alpha1.Memcached) (*corev1.ConfigMap, error) {
+	ls := labelsForMemcached(memcached.Name)
 
-// func (r *MemcachedReconciler) configmapForMemcached(
-// 	memcached *cachev1alpha1.Memcached) (*appsv1.ConfigMap, error) {
-// 	ls := labelsForMemcached(memcached.Name)
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      memcached.Name,
+			Namespace: memcached.Namespace,
+			Labels:    ls,
+		},
+		Immutable: &[]bool{true}[0],
+		Data: map[string]string{
+			"test1": "asdf",
+		},
+		BinaryData: map[string][]byte{},
+	}
 
-// 	dep := &appsv1.Deployment{
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      memcached.Name,
-// 			Namespace: memcached.Namespace,
-// 		},
-// 		Spec: appsv1.DeploymentSpec{
-
-// 		}
-// 	}
-// )
-
+	// Set the ownerRef for the ConfigMap
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
+	if err := ctrl.SetControllerReference(memcached, cm, r.Scheme); err != nil {
+		return nil, err
+	}
+	return cm, nil
+}
 
 // deploymentForMemcached returns a Memcached Deployment object
 func (r *MemcachedReconciler) deploymentForMemcached(
@@ -463,5 +513,6 @@ func (r *MemcachedReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&cachev1alpha1.Memcached{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.ConfigMap{}).
 		Complete(r)
 }
